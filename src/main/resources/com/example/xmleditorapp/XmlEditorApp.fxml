@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<?import javafx.scene.control.*?>
+<?import javafx.scene.layout.*?>
+<?import javafx.scene.web.WebView?>
+
+<VBox prefHeight="600.0" prefWidth="900.0" xmlns="http://javafx.com/javafx/17"
+      xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.example.xmleditorapp.XmlEditorController">
+<MenuBar>
+    <Menu text="File">
+        <MenuItem text="Open XML..." onAction="#handleOpen"/>
+        <MenuItem text="Close" onAction="#handleClose"/>
+
+        <!-- ADD THIS MENU ITEM -->
+        <SeparatorMenuItem/>
+        <MenuItem text="Configure XSLT..." onAction="#handleConfigureXslt"/>
+
+        <SeparatorMenuItem/>
+        <MenuItem text="Exit" onAction="#handleExit"/>
+    </Menu>
+
+</MenuBar>
+
+<SplitPane dividerPositions="0.3" VBox.vgrow="ALWAYS">
+    <TreeView fx:id="xmlTreeView" prefWidth="300.0" />
+
+    <TabPane fx:id="tabPane" tabClosingPolicy="UNAVAILABLE" prefWidth="600.0">
+
+        <Tab text="SVG Visualization">
+            <WebView fx:id="svgWebView" />
+        </Tab>
+
+        <Tab text="XML Source">
+            <TextArea fx:id="xmlSourceArea" wrapText="true" editable="false" />
+        </Tab>
+
+
+
+    </TabPane>
+</SplitPane>
+</VBox>
