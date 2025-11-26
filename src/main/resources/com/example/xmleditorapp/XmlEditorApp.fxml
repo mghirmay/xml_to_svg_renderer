@@ -8,8 +8,11 @@
       xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.example.xmleditorapp.XmlEditorController">
 <MenuBar>
     <Menu text="File">
-        <MenuItem text="Open XML..." onAction="#handleOpen"/>
-        <MenuItem text="Close" onAction="#handleClose"/>
+        <MenuItem text="Open..." onAction="#handleOpen"/>
+        <Menu fx:id="recentFilesMenu" text="Open Recent"/>
+        <SeparatorMenuItem/>
+        <MenuItem text="Save" onAction="#handleSave"/>
+        <MenuItem text="Save As..." onAction="#handleSaveAs"/>
 
         <!-- ADD THIS MENU ITEM -->
         <SeparatorMenuItem/>

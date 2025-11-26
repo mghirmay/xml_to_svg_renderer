@@ -142,7 +142,7 @@
                         console.error("Java bridge method openEditDialogForNode not found.");
                     }
                 }
-
+                
                 function openEditPanel(element) {
                     var panelContainer = document.getElementById('editPanelContainer');
                     var form = document.getElementById('attributeForm');
@@ -341,7 +341,7 @@
         <xsl:if test="@x or @y">
             <g class="child-node"
                onmousedown="startDrag(evt)"
-               onclick="triggerJavaEditDialog(this)"
+               onclick="openEditPanel(this)"
                transform="translate(0,0)"
                data-node-name="{@name}"
                data-node-type="{name()}"
