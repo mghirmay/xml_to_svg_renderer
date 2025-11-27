@@ -8,6 +8,7 @@
         <xs:sequence>
             <xs:element name="Dialogs" type="DialogsType"/>
             <xs:element name="Signatures" type="SignaturesType"/>
+            <xs:element name="PDF" type="PDFDataType" minOccurs="0"/>
         </xs:sequence>
     </xs:complexType>
 
@@ -63,11 +64,29 @@
 
     <xs:complexType name="BackGroundImageType">
         <xs:simpleContent>
-            <xs:extension base="xs:string">
+            <xs:extension base="xs:base64Binary">
                 <xs:attribute name="mimeType" type="xs:string" use="required"/>
             </xs:extension>
         </xs:simpleContent>
     </xs:complexType>
+
+    <xs:complexType name="PDFDataType">
+        <xs:simpleContent>
+            <xs:extension base="xs:base64Binary">
+                <xs:attribute name="mimeType" type="xs:string" use="required"/>
+            </xs:extension>
+        </xs:simpleContent>
+    </xs:complexType>
+
+    <xs:complexType name="ImageDataType">
+        <xs:simpleContent>
+            <xs:extension base="xs:base64Binary">
+                <xs:attribute name="mimeType" type="xs:string" use="required"/>
+            </xs:extension>
+        </xs:simpleContent>
+    </xs:complexType>
+
+
 
     <xs:complexType name="TextBoxType">
         <xs:complexContent>
