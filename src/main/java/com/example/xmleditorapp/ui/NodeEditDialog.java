@@ -25,6 +25,7 @@ public class NodeEditDialog extends Dialog<Map<String, String>> {
     private final Element targetElement;
     private final Map<String, TextField> attributeInputs = new HashMap<>();
     private final Set<String> containerNodeTypes;
+    private final String elementContentType; // NEW FIELD
 
     // Interface to call the controller's DOM update methods (Add/Delete/Update)
     public interface EditDialogListener {
@@ -55,6 +56,9 @@ public class NodeEditDialog extends Dialog<Map<String, String>> {
         this.containerNodeTypes = containerNodeTypes; // Store the set
 
         String nodeType = element.getNodeName();
+
+        // FETCH THE CONTENT TYPE
+        this.elementContentType = XmlSchemaReader.getInstance().getElementContentType(nodeType);
 
         // 💡 Modality Change: Set dialog to be non-blocking (non-modal)
         this.initModality(javafx.stage.Modality.NONE);
@@ -92,14 +96,10 @@ public class NodeEditDialog extends Dialog<Map<String, String>> {
     }
 
     // --- Core UI Creation Methods ---
-
     private GridPane createAttributeGrid(Element element, String nodeType, Map<String, String> constraints) {
         GridPane grid = new GridPane();
         grid.setHgap(10);
         grid.setVgap(10);
-
-        // ... (existing variable declarations and key iteration logic) ...
-        // Note: The logic to gather currentAttributes and sortedKeys remains the same.
 
         Map<String, String> currentAttributes = getCurrentAttributes(element);
         java.util.Set<String> keysToShow = new java.util.HashSet<>(currentAttributes.keySet());
@@ -108,9 +108,11 @@ public class NodeEditDialog extends Dialog<Map<String, String>> {
         java.util.Collections.sort(sortedKeys);
 
         int row = 0;
-        // Check if the current element requires binary file handling
-        boolean isBinaryNode = element.getNodeName().equalsIgnoreCase("pdf") ||
-                element.getNodeName().equalsIgnoreCase("BackgroundImage");
+
+        // --- REVISED LOGIC ---
+        // Check if the current element requires binary file handling using the schema reader.
+        // This is now generic and depends only on the XSD type name.
+        boolean isBinaryNode = XmlSchemaReader.getInstance().isBinaryContentElement(nodeType);
 
         for (String key : sortedKeys) {
             if (key.startsWith("xmlns") || key.equals("id")) continue;
@@ -124,15 +126,15 @@ public class NodeEditDialog extends Dialog<Map<String, String>> {
 
             javafx.scene.Node inputControl;
 
-            // 💡 NEW LOGIC: If it's a binary node and the key is "value" (for content)
+            // 💡 GENERIC CHECK: If the element's content type is binary AND we are editing the "value" (content) field
             if (isBinaryNode && key.equalsIgnoreCase("value")) {
                 inputControl = createBinaryFileChooserControl(element, label);
-                // The value field is already handled inside the helper, we just need the reference
-                // Use a temporary TextField to hold the Base64 value for the result conversion
+
+                // ... (Temporary TextField to hold the Base64 value remains the same) ...
                 TextField base64Field = new TextField(value.length() > 50 ? value.substring(0, 50) + "..." : value);
-                base64Field.setEditable(false); // Display encoded status, but don't allow manual edit
-                base64Field.setId("base64_display_" + element.getAttribute("name")); // Unique ID for finding it later
-                attributeInputs.put(key, base64Field); // Store the reference to this display field
+                base64Field.setEditable(false);
+                base64Field.setId("base64_display_" + element.getAttribute("name"));
+                attributeInputs.put(key, base64Field);
 
             } else {
                 // Standard attribute field

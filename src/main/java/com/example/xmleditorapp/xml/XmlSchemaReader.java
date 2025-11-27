@@ -31,6 +31,15 @@ public class XmlSchemaReader {
     private final XPath xpath;
     private static final String XSD_NAMESPACE = "http://www.w3.org/2001/XMLSchema";
 
+    // Define a set of XSD types that should be treated as binary content
+    private static final Set<String> BINARY_XSD_TYPES = Set.of(
+            "xs:base64Binary",
+            "base64Binary", // Common XSD binary type
+            // Add any custom type names your schema uses for binary data here
+            "ImageDataType",
+            "PDFDataType"
+    );
+
     // --- Private Constructor to enforce Singleton ---
     private XmlSchemaReader() throws Exception {
         List<File> xsdFiles = loadAllXsdFilesFromRessourceDirectory("esign/xsd");
@@ -83,11 +92,15 @@ public class XmlSchemaReader {
      * This version requires the list of XSD files for the first call.
       * @return The single XmlSchemaReader instance.
      */
-    public static XmlSchemaReader getInstance() throws Exception {
+    public static XmlSchemaReader getInstance()  {
         if (instance == null) {
             synchronized (XmlSchemaReader.class) {
                 if (instance == null) {
-                    instance = new XmlSchemaReader();
+                    try {
+                        instance = new XmlSchemaReader();
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
+                    }
                 }
             }
         }
@@ -365,5 +378,76 @@ public class XmlSchemaReader {
         }
 
         return defaultAttrs;
+    }
+
+    /**
+     * Finds the XSD type (e.g., "xs:string", "xs:base64Binary", or a custom type name)
+     * for an element's simple content (its text value).
+     * @param elementType e.g., "PDF"
+     * @return The XSD type name as a String (e.g., "xs:base64Binary"). Returns "xs:string" as a default.
+     */
+    public String getElementContentType(String elementType) {
+        try {
+            // 1. Find the element definition
+            String elementPath = String.format("//xs:element[@name='%s']", elementType);
+            NodeList elements = (NodeList) xpath.compile(elementPath).evaluate(schemaDocument, XPathConstants.NODESET);
+
+            if (elements.getLength() > 0) {
+                Element element = (Element) elements.item(0);
+
+                // 2. Check for an explicit 'type' attribute (Case: <xs:element name="PDF" type="xs:base64Binary"/>)
+                String typeName = element.getAttribute("type");
+                if (!typeName.isEmpty()) {
+                    return typeName;
+                }
+
+                // 3. Check for a local <xs:complexType> definition with simple content
+                // (Case: <xs:element name="PDF"><xs:complexType><xs:simpleContent>...</xs:simpleContent>...</xs:complexType></xs:element>)
+                String simpleContentPath = "descendant::xs:complexType[descendant::xs:simpleContent]";
+                NodeList simpleContentNodes = (NodeList) xpath.compile(simpleContentPath).evaluate(element, XPathConstants.NODESET);
+
+                if (simpleContentNodes.getLength() > 0) {
+                    // If simpleContent is found, look for its base type (on <xs:extension> or <xs:restriction>)
+                    String baseTypePath = "descendant::xs:extension/@base | descendant::xs:restriction/@base";
+                    NodeList baseTypeNodes = (NodeList) xpath.compile(baseTypePath).evaluate(element, XPathConstants.NODESET);
+
+                    if (baseTypeNodes.getLength() > 0) {
+                        return baseTypeNodes.item(0).getNodeValue();
+                    }
+                }
+            }
+        } catch (XPathExpressionException e) {
+            System.err.println("Error querying XSD for content type of " + elementType + ": " + e.getMessage());
+        }
+        // Default to string if type is not explicitly defined
+        return "xs:string";
+    }
+
+
+    /**
+     * Checks if an element's type is one of the designated types for binary content.
+     */
+    public boolean isBinaryContentElement(String elementType) {
+        try {
+            // Find the element definition
+            String elementPath = String.format("//xs:element[@name='%s']", elementType);
+            NodeList elements = (NodeList) xpath.compile(elementPath).evaluate(schemaDocument, XPathConstants.NODESET);
+
+            if (elements.getLength() > 0) {
+                Element element = (Element) elements.item(0);
+
+                // 1. Check the explicit 'type' attribute
+                String typeName = element.getAttribute("type");
+                if (!typeName.isEmpty() && BINARY_XSD_TYPES.contains(typeName)) {
+                    return true;
+                }
+
+                // 2. Check if the element contains an anonymous complex type that is simple content
+                // (You could extend this logic if needed, but checking the named type is the primary generalization)
+            }
+        } catch (XPathExpressionException e) {
+            System.err.println("Error querying XSD for binary type check: " + e.getMessage());
+        }
+        return false;
     }
 }
