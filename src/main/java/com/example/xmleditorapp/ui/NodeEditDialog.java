@@ -1,6 +1,7 @@
 package com.example.xmleditorapp.ui;
 
 import com.example.xmleditorapp.xml.XmlSchemaReader;
+import javafx.event.ActionEvent;
 import javafx.scene.control.*;
 import javafx.scene.layout.GridPane;
 import javafx.scene.layout.HBox;
@@ -18,6 +19,9 @@ import java.util.*;
 // The return type is a Map<String, String> containing all updated attributes
 public class NodeEditDialog extends Dialog<Map<String, String>> {
 
+    // --- ENHANCEMENT: Static Counter for Logging ---
+    private static int dialogCount = 0;
+
     private final Element targetElement;
     private final Map<String, TextField> attributeInputs = new HashMap<>();
     private final Set<String> containerNodeTypes;
@@ -25,7 +29,8 @@ public class NodeEditDialog extends Dialog<Map<String, String>> {
     // Interface to call the controller's DOM update methods (Add/Delete/Update)
     public interface EditDialogListener {
         void fireUpdateRequest(Element element, Map<String, String> updatedAttrs);
-        void fireAddNodeRequest(String parentName, String newNodeType);
+        // Updated interface to handle the new dialogToClose argument
+        void fireAddNodeRequest(Dialog<?> dialogToClose, String parentName, String newNodeType);
         void fireDeleteNodeRequest(String nodeName);
         void fireEditChildDialog(Element childElement);
         // NEW: Method to handle file processing
@@ -38,11 +43,21 @@ public class NodeEditDialog extends Dialog<Map<String, String>> {
      * Constructor to initialize the dialog with the target node and necessary helpers.
      */
     public NodeEditDialog(Element element,  EditDialogListener listener, Set<String> containerNodeTypes) {
+
+        // --- ENHANCEMENT: Logging ---
+        dialogCount++;
+        String nodeName = element.getAttribute("name").isEmpty() ? element.getNodeName() : element.getAttribute("name");
+        System.out.printf("LOG: Opened NodeEditDialog #%d for element: <%s> (name='%s')\n",
+                dialogCount, element.getNodeName(), nodeName);
+
         this.targetElement = element;
         this.listener = listener;
         this.containerNodeTypes = containerNodeTypes; // Store the set
 
         String nodeType = element.getNodeName();
+
+        // 💡 Modality Change: Set dialog to be non-blocking (non-modal)
+        this.initModality(javafx.stage.Modality.NONE);
 
         setTitle("Edit Node: " + nodeType);
         setHeaderText("Attributes for " + element.getAttribute("name"));
@@ -278,8 +293,8 @@ public class NodeEditDialog extends Dialog<Map<String, String>> {
                 // 3. Show and handle the result
                 Optional<String> result = customTypeDialog.showAndWait();
 
-                // Pass the new type to the controller to handle creation and refresh
-                result.ifPresent(type -> listener.fireAddNodeRequest(parentElement.getAttribute("name"), type));
+                // Pass the new type and the current dialog instance to the controller to handle creation and refresh
+                result.ifPresent(type -> listener.fireAddNodeRequest(this, parentElement.getAttribute("name"), type));
 
             } catch (Exception ex) {
                 showAlert("Schema Error", "Failed to retrieve allowed child types: " + ex.getMessage(), Alert.AlertType.ERROR);
@@ -296,6 +311,9 @@ public class NodeEditDialog extends Dialog<Map<String, String>> {
                 Element selectedChild = childMap.get(selectedDisplayName);
                 String nodeName = selectedChild.getAttribute("name"); // Use the unique name
                 listener.fireDeleteNodeRequest(nodeName);
+
+                // Since this is non-modal, you might want to force a refresh on the parent dialog here
+                // if the controller doesn't handle the update/reopen automatically.
             }
         });
 
@@ -365,6 +383,7 @@ public class NodeEditDialog extends Dialog<Map<String, String>> {
     }
 
     // --- Button Setup ---
+// Inside NodeEditDialog.java
 
     private void setupButtonsAndConverter(Map<String, String> constraints) {
         ButtonType saveButtonType = new ButtonType("Save", ButtonData.OK_DONE);
@@ -385,14 +404,26 @@ public class NodeEditDialog extends Dialog<Map<String, String>> {
             return null;
         });
 
-        // Attach listener to fire the update request when saved
-        Optional<Map<String, String>> result = showAndWait();
+        // CRITICAL: Since we are using show() (non-blocking), we must manually
+        // fire the update request when the Save button is clicked and the dialog closes.
+        Button saveButton = (Button) getDialogPane().lookupButton(saveButtonType);
 
-        result.ifPresent(updatedAttrs -> {
-            // Call the listener method on the controller to update the DOM
-            listener.fireUpdateRequest(targetElement, updatedAttrs);
+        // The previous check was incorrect. We attach the filter directly to the saveButton,
+        // so we can safely assume the action comes from it.
+        saveButton.addEventFilter(ActionEvent.ACTION, event -> {
+            // Only run the update logic if the action is the click event
+            if (event.getEventType() == ActionEvent.ACTION) {
+                // Manually call the result converter to gather the attribute changes
+                Map<String, String> updatedAttrs = getResultConverter().call(saveButtonType);
+
+                if (updatedAttrs != null) {
+                    // Fire the update request to the controller
+                    listener.fireUpdateRequest(targetElement, updatedAttrs);
+                }
+            }
         });
+
+        // Final call to show the dialog
+        show(); // Non-blocking call
     }
-
-
 }

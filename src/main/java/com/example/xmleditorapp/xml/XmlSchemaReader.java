@@ -14,6 +14,7 @@ import javax.xml.validation.SchemaFactory;
 import javax.xml.xpath.*;
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.nio.file.Paths;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -32,36 +33,47 @@ public class XmlSchemaReader {
 
     // --- Private Constructor to enforce Singleton ---
     private XmlSchemaReader() throws Exception {
-        // 1. Load the list of XSD files
         List<File> xsdFiles = loadAllXsdFilesFromRessourceDirectory("esign/xsd");
-
-        if (xsdFiles == null || xsdFiles.isEmpty()) {
+        if (xsdFiles.isEmpty()) {
             throw new IllegalArgumentException("XSD file list cannot be empty.");
         }
 
+        System.out.println("--- XSD Schema Reader Initialization ---");
+
         // 1. Convert File objects to JAXP Source objects for compilation
         List<Source> sources = xsdFiles.stream()
-                .map(StreamSource::new)
+                .map(file -> {
+                    System.out.println("✅ Compiling schema source: " + file.getName()); // LOGGING
+                    return new StreamSource(file);
+                })
                 .collect(Collectors.toList());
 
         // 2. Combine and Compile the Schemas for validation
         SchemaFactory factory = SchemaFactory.newInstance(XMLConstants.W3C_XML_SCHEMA_NS_URI);
         try {
             this.compiledSchema = factory.newSchema(sources.toArray(new Source[0]));
+            System.out.println("✅ All " + xsdFiles.size() + " schemas compiled successfully."); // LOGGING
         } catch (SAXException e) {
+            System.err.println("❌ Failed to compile schemas!"); // LOGGING
             throw new SAXException("Failed to compile schemas: " + e.getMessage(), e);
         }
 
         // 3. For XPath Queries: Load the primary XSD into a DOM Document
         File primaryXsd = xsdFiles.get(0);
+        System.out.println("ℹ️ Using primary XSD for XPath lookups: " + primaryXsd.getName()); // LOGGING
+
         DocumentBuilderFactory dbf = DocumentBuilderFactory.newInstance();
-        dbf.setNamespaceAware(true); // Must be true for XPath to work correctly
+        dbf.setNamespaceAware(true);
         this.schemaDocument = dbf.newDocumentBuilder().parse(primaryXsd);
         this.schemaDocument.normalize();
 
         // 4. Initialize XPath
         this.xpath = XPathFactory.newInstance().newXPath();
-        this.xpath.setNamespaceContext(new NamespaceResolver(XSD_NAMESPACE, "xs"));
+        // Assuming 'xpath' is your javax.xml.xpath.XPath instance
+        NamespaceResolver resolver = new NamespaceResolver(XSD_NAMESPACE, "xs");
+        xpath.setNamespaceContext(resolver); // <--- This is the crucial line you might be missing
+
+        this.xpath.setNamespaceContext(resolver);
     }
 
     // --- Public Access Method (The Singleton Getter) ---
@@ -117,32 +129,36 @@ public class XmlSchemaReader {
         java.net.URL resourceUrl = XmlSchemaReader.class.getResource(resourceDirectory);
 
         if (resourceUrl == null) {
-            throw new FileNotFoundException("XSD resource directory not found on classpath: " + resourceDirectory);
+            throw new FileNotFoundException("❌ XSD resource directory not found on classpath: " + resourceDirectory);
         }
 
-        // Attempt to convert the URL to a File object
-        // WARNING: This conversion breaks when the application is packaged as a JAR.
         File dir;
         try {
-            dir = new File(resourceUrl.toURI());
-        } catch (java.net.URISyntaxException e) {
-            throw new FileNotFoundException("Error converting resource URL to URI: " + e.getMessage());
+            dir = Paths.get(resourceUrl.toURI()).toFile();
+            System.out.println("ℹ️ Found resource directory path: " + dir.getAbsolutePath()); // LOGGING
+        } catch (Exception e) {
+            System.err.println("❌ Error converting resource URL to URI/File: " + e.getMessage()); // LOGGING
+            dir = new File(resourceUrl.getPath());
         }
 
         if (!dir.exists() || !dir.isDirectory()) {
-            // If running from a JAR, the URL scheme might be "jar:file:/..." instead of "file:/..."
-            // In this case, `dir` will point to the JAR itself, or the path will be invalid.
-            // We throw an exception, as we cannot list contents of JAR directories using standard File APIs.
-            throw new FileNotFoundException("Cannot list contents of directory " + resourceDirectory + ". If running from a JAR, you must list XSD file names manually.");
+            throw new FileNotFoundException("❌ Resource path found but cannot be treated as a listable directory: " + dir.getAbsolutePath());
         }
 
         File[] files = dir.listFiles((d, name) -> name.toLowerCase().endsWith(".xsd"));
 
         if (files == null || files.length == 0) {
-            throw new FileNotFoundException("No XSD files found in resource directory: " + resourceDirectory);
+            throw new FileNotFoundException("❌ No XSD files found in resource directory: " + dir.getAbsolutePath());
         }
 
-        return Arrays.asList(files);
+        List<File> xsdFiles = Arrays.stream(files)
+                .filter(File::isFile)
+                .collect(Collectors.toList());
+
+        System.out.println("✅ Found " + xsdFiles.size() + " XSD file(s):"); // LOGGING
+        xsdFiles.forEach(file -> System.out.println("  - " + file.getName())); // LOGGING
+
+        return xsdFiles;
     }
     // --- Core Functionality Methods ---
 
@@ -175,33 +191,50 @@ public class XmlSchemaReader {
 
         return constraints;
     }
-
     /**
-     * Identifies XML elements that are allowed to contain child elements (containers)
-     * by checking for complex types that define a 'sequence' or 'choice'.
-     * @return A Set of element tag names (e.g., "ComboBox", "RadioButtonGroup").
+     * Identifies elements that are true structural containers by checking if their
+     * schema definition includes an <xs:sequence>, <xs:choice>, or <xs:all> block
+     * that allows other elements inside.
+     * * @return A Set of element names (tags) that are containers.
      */
     public Set<String> getContainerNodeTypes() {
         Set<String> containerTypes = new HashSet<>();
+
+        // 1. Define the Robust XPath Expression
+        // This expression finds the name of any global element (xs:element) that meets either of two criteria:
+        // A. It references a global complex type that defines a sequence/choice/all (i.e., it holds children).
+        // B. It defines a local complex type that contains a sequence/choice/all.
+        // C. It uses a substitutionGroup, which means it likely acts as a parent type (though less common).
+
+        final String CONTAINER_XPATH =
+                "//xs:element[" +
+                        // CRITERIA A & B: Find elements that have a type definition allowing child elements
+                        "  @type = //xs:complexType[descendant::xs:sequence or descendant::xs:choice or descendant::xs:all]/@name " +
+                        "  or " +
+                        "  descendant::xs:complexType[descendant::xs:sequence or descendant::xs:choice or descendant::xs:all] " +
+                        "]/@name";
+
         try {
-            // CORRECTED XPath: Finds xs:element nodes that contain a complexType
-            // which, in turn, contains EITHER an xs:sequence OR an xs:choice descendant.
-            String expression = "//xs:element[xs:complexType[.//xs:sequence | .//xs:choice]]";
+            // 2. Execute the XPath query
+            NodeList nodeNames = (NodeList) xpath.compile(CONTAINER_XPATH).evaluate(schemaDocument, XPathConstants.NODESET);
 
-            // OR, if you are certain they are direct children:
-            // String expression = "//xs:element[xs:complexType[xs:sequence | xs:choice]]";
-            // (The first option is safer as XSDs can wrap sequences/choices.)
+            // 3. Collect the resulting element names
+            for (int i = 0; i < nodeNames.getLength(); i++) {
+                containerTypes.add(nodeNames.item(i).getNodeValue());
+            }
 
-            XPathExpression xpathExpr = xpath.compile(expression);
-            NodeList elements = (NodeList) xpathExpr.evaluate(schemaDocument, XPathConstants.NODESET);
-
-            // ... (rest of your logic to populate containerTypes remains the same) ...
+            // Manually add the root element if necessary (e.g., if "ESign" isn't caught by the XPath)
+            // String rootName = schemaDocument.getDocumentElement().getNodeName();
+            // containerTypes.add(rootName);
 
         } catch (XPathExpressionException e) {
-            System.err.println("Error reading container types from XSD: " + e.getMessage());
+            System.err.println("Error running XPath for container types: " + e.getMessage());
         }
+
+        System.out.println("LOG: Identified Container Types: " + containerTypes);
         return containerTypes;
     }
+
     // Getter for the Schema object (useful for validation outside this class)
     public Schema getCompiledSchema() {
         return compiledSchema;
@@ -216,21 +249,39 @@ public class XmlSchemaReader {
     public Set<String> getAllowedChildNodeTypes(String parentElementType) {
         Set<String> allowedChildren = new HashSet<>();
         try {
-            // XPath to find all xs:element definitions that are descendants
-            // of the parent element's complex type definition's content model (sequence/choice)
-            String expression = String.format(
-                    "//xs:element[@name='%s']//xs:complexType//xs:element",
-                    parentElementType
-            );
+            String expression;
+            String typeName = null;
 
+            // STEP 1: Find the type name for the parent element
+            // Find the global element definition (e.g., <xs:element name="Dialogs" type="DialogsType"/>)
+            String elementTypeExpr = String.format("//xs:element[@name='%s']", parentElementType);
+            NodeList parentElements = (NodeList) xpath.compile(elementTypeExpr).evaluate(schemaDocument, XPathConstants.NODESET);
+
+            if (parentElements.getLength() > 0) {
+                Element parentElement = (Element) parentElements.item(0);
+                typeName = parentElement.getAttribute("type");
+            }
+
+            // STEP 2: Construct the correct XPath based on whether a type was referenced
+            if (typeName != null && !typeName.isEmpty()) {
+                // Case A: Element uses a global type reference (e.g., type="DialogsType")
+                // Find children inside the referenced GLOBAL complex type
+                // expression = "//xs:complexType[@name='DialogsType']//xs:element"
+                expression = String.format("//xs:complexType[@name='%s']//xs:element", typeName);
+            } else {
+                // Case B: Element uses an anonymous/local complex type
+                // The children are nested inside the element definition
+                // expression = "//xs:element[@name='MyElement']//xs:complexType//xs:element"
+                expression = String.format("//xs:element[@name='%s']//xs:complexType//xs:element", parentElementType);
+            }
+
+            // --- Execute the combined XPath ---
             XPathExpression xpathExpr = xpath.compile(expression);
             NodeList elements = (NodeList) xpathExpr.evaluate(schemaDocument, XPathConstants.NODESET);
 
             for (int i = 0; i < elements.getLength(); i++) {
                 Element element = (Element) elements.item(i);
                 String xmlTagName = element.getAttribute("name");
-
-                // Check for ref attribute (common in modular XSDs)
                 String refName = element.getAttribute("ref");
 
                 if (!xmlTagName.isEmpty()) {
@@ -244,5 +295,75 @@ public class XmlSchemaReader {
             System.err.println("Error reading allowed child types for " + parentElementType + ": " + e.getMessage());
         }
         return allowedChildren;
+    }
+
+    /**
+     * Finds all attributes for a given element type, prioritizing required attributes
+     * and their default/fixed values from the XSD.
+     * @param elementType e.g., "Button"
+     * @return Map of attribute name to default value. Required attributes without a
+     * default will map to an empty string ("").
+     */
+    public Map<String, String> getDefaultAttributes(String elementType) {
+        Map<String, String> defaultAttrs = new HashMap<>();
+
+        // This logic must handle the same two cases as getAllowedChildNodeTypes:
+        // 1. Element uses a global type reference (most common).
+        // 2. Element uses an anonymous/local type.
+
+        try {
+            String typeName = null;
+            String elementPath = String.format("//xs:element[@name='%s']", elementType);
+            NodeList parentElements = (NodeList) xpath.compile(elementPath).evaluate(schemaDocument, XPathConstants.NODESET);
+
+            if (parentElements.getLength() > 0) {
+                Element parentElement = (Element) parentElements.item(0);
+                typeName = parentElement.getAttribute("type");
+            }
+
+            String expression;
+            if (typeName != null && !typeName.isEmpty()) {
+                // Case A: Global type reference: Look for attributes within the referenced complex type.
+                expression = String.format("//xs:complexType[@name='%s']//xs:attribute", typeName);
+            } else {
+                // Case B: Local type: Look for attributes defined directly inside the element.
+                expression = String.format("//xs:element[@name='%s']//xs:attribute", elementType);
+            }
+
+            // Execute XPath to find all attributes associated with this element's definition
+            NodeList attributeNodes = (NodeList) xpath.evaluate(expression, schemaDocument, XPathConstants.NODESET);
+
+            for (int i = 0; i < attributeNodes.getLength(); i++) {
+                Element attr = (Element) attributeNodes.item(i);
+                String name = attr.getAttribute("name");
+                String use = attr.getAttribute("use");
+                String defaultValue = attr.getAttribute("default");
+                String fixedValue = attr.getAttribute("fixed");
+
+                // Prioritize required attributes and any explicit values
+                if (use.equalsIgnoreCase("required") || !defaultValue.isEmpty() || !fixedValue.isEmpty()) {
+                    if (!fixedValue.isEmpty()) {
+                        // Fixed values must be used
+                        defaultAttrs.put(name, fixedValue);
+                    } else if (!defaultValue.isEmpty()) {
+                        // Default values are next
+                        defaultAttrs.put(name, defaultValue);
+                    } else if (use.equalsIgnoreCase("required")) {
+                        // Required attribute without a default, use an empty string as a placeholder
+                        defaultAttrs.put(name, "");
+                    }
+                }
+            }
+
+            // Ensure the 'name' attribute is always included, as it's typically required
+            if (!defaultAttrs.containsKey("name")) {
+                defaultAttrs.put("name", ""); // Placeholder for the unique name we generate
+            }
+
+        } catch (XPathExpressionException e) {
+            System.err.println("Error querying XSD for default attributes of " + elementType + ": " + e.getMessage());
+        }
+
+        return defaultAttrs;
     }
 }

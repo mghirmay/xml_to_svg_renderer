@@ -1,0 +1,193 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           elementFormDefault="qualified">
+
+    <xs:element name="ESign" type="ESignType"/>
+
+    <xs:complexType name="ESignType">
+        <xs:sequence>
+            <xs:element name="Dialogs" type="DialogsType"/>
+            <xs:element name="Signatures" type="SignaturesType"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="DialogsType">
+        <xs:sequence>
+            <xs:element name="Dialog" type="DialogType" maxOccurs="unbounded"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="DialogType">
+        <xs:sequence>
+            <xs:element name="Scene" type="SceneType" maxOccurs="unbounded"/>
+        </xs:sequence>
+        <xs:attribute name="width" type="xs:integer" use="required"/>
+        <xs:attribute name="height" type="xs:integer" use="required"/>
+        <xs:attribute name="title" type="xs:string" use="required"/>
+        <xs:attribute name="version" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="SceneType">
+        <xs:sequence>
+            <xs:choice maxOccurs="unbounded">
+                <xs:element name="BackGroundImage" type="BackGroundImageType" minOccurs="0"/>
+                <xs:element name="TextBox" type="TextBoxType" minOccurs="0"/>
+                <xs:element name="CheckBox" type="CheckBoxType" minOccurs="0"/>
+                <xs:element name="ComboBox" type="SelectableComponentType" minOccurs="0"/>
+                <xs:element name="ListView" type="SelectableComponentType" minOccurs="0"/>
+                <xs:element name="RadioButtonGroup" type="RadioButtonGroupType" minOccurs="0"/>
+                <xs:element name="Button" type="ButtonType" minOccurs="0"/>
+            </xs:choice>
+        </xs:sequence>
+        <xs:attribute name="name" type="xs:string" use="required"/>
+        <xs:attribute name="backgroundColor" type="xs:string" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="BaseComponentAttributes">
+        <xs:attribute name="name" type="xs:string" use="required"/>
+        <xs:attribute name="value" type="xs:string" use="optional"/>
+        <xs:attribute name="x" type="xs:integer" use="required"/>
+        <xs:attribute name="y" type="xs:integer" use="required"/>
+        <xs:attribute name="width" type="xs:integer" use="required"/>
+        <xs:attribute name="height" type="xs:integer" use="required"/>
+    </xs:complexType>
+
+    <xs:complexType name="OptionType">
+        <xs:attribute name="name" type="xs:string" use="required"/>
+        <xs:attribute name="value" type="xs:string" use="required"/>
+        <xs:attribute name="x" type="xs:integer" use="optional"/>
+        <xs:attribute name="y" type="xs:integer" use="optional"/>
+        <xs:attribute name="width" type="xs:integer" use="optional"/>
+        <xs:attribute name="height" type="xs:integer" use="optional"/>
+    </xs:complexType>
+
+    <xs:complexType name="BackGroundImageType">
+        <xs:simpleContent>
+            <xs:extension base="xs:string">
+                <xs:attribute name="mimeType" type="xs:string" use="required"/>
+            </xs:extension>
+        </xs:simpleContent>
+    </xs:complexType>
+
+    <xs:complexType name="TextBoxType">
+        <xs:complexContent>
+            <xs:extension base="BaseComponentAttributes"/>
+        </xs:complexContent>
+    </xs:complexType>
+
+    <xs:complexType name="CheckBoxType">
+        <xs:complexContent>
+            <xs:extension base="BaseComponentAttributes">
+                <xs:sequence>
+                    <xs:element name="Option" type="OptionType" maxOccurs="unbounded"/>
+                </xs:sequence>
+                <xs:attribute name="text" type="xs:string" use="required"/>
+            </xs:extension>
+        </xs:complexContent>
+    </xs:complexType>
+
+    <xs:complexType name="SelectableComponentType">
+        <xs:complexContent>
+            <xs:extension base="BaseComponentAttributes">
+                <xs:sequence>
+                    <xs:element name="Option" type="OptionType" maxOccurs="unbounded"/>
+                </xs:sequence>
+            </xs:extension>
+        </xs:complexContent>
+    </xs:complexType>
+
+    <xs:complexType name="RadioButtonGroupType">
+        <xs:complexContent>
+            <xs:extension base="BaseComponentAttributes">
+                <xs:sequence>
+                    <xs:element name="Option" type="OptionType" maxOccurs="unbounded"/>
+                </xs:sequence>
+            </xs:extension>
+        </xs:complexContent>
+    </xs:complexType>
+
+    <xs:complexType name="ButtonType">
+        <xs:complexContent>
+            <xs:extension base="BaseComponentAttributes">
+                <xs:attribute name="label" type="xs:string" use="required"/>
+                <xs:attribute name="action" type="xs:string" use="required"/>
+            </xs:extension>
+        </xs:complexContent>
+    </xs:complexType>
+
+    <xs:complexType name="SignaturesType">
+        <xs:choice maxOccurs="unbounded">
+            <xs:element name="DigSig" type="DigSigType"/>
+            <xs:element name="Signature" type="SignaturePlaceholderType"/>
+            <xs:element name="Static" type="StaticSignatureType"/>
+        </xs:choice>
+    </xs:complexType>
+
+    <xs:complexType name="StampType">
+        <xs:sequence>
+            <xs:element name="Position" type="xs:string"/>
+            <xs:element name="Text" type="xs:string"/>
+            <xs:element name="Size" type="xs:integer"/>
+            <xs:element name="Color" type="xs:string"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="BaseSignatureFields">
+        <xs:attribute name="Mandatory" type="xs:string" use="optional"/>
+    </xs:complexType>
+
+    <xs:complexType name="DigSigType">
+        <xs:sequence>
+            <xs:element name="FieldName" type="xs:string"/>
+            <xs:element name="Signed" type="xs:integer"/>
+            <xs:element name="Zoom" type="xs:integer"/>
+            <xs:element name="Stamp" type="StampType" minOccurs="0"/>
+            <xs:element name="Signer" type="xs:string" minOccurs="0"/>
+            <xs:element name="Reason" type="xs:string" minOccurs="0"/>
+            <xs:element name="Location" type="xs:string" minOccurs="0"/>
+        </xs:sequence>
+    </xs:complexType>
+
+    <xs:complexType name="SignaturePlaceholderType">
+        <xs:complexContent>
+            <xs:extension base="BaseSignatureFields">
+                <xs:sequence>
+                    <xs:element name="Placeholder" type="xs:string"/>
+                    <xs:element name="Height" type="xs:decimal"/>
+                    <xs:element name="Width" type="xs:decimal"/>
+                    <xs:element name="Offset_X" type="xs:decimal"/>
+                    <xs:element name="Offset_Y" type="xs:decimal"/>
+                    <xs:element name="Signed" type="xs:integer"/>
+                    <xs:element name="Zoom" type="xs:integer"/>
+                    <xs:element name="DisplacementTLIndex" type="xs:integer" minOccurs="0"/>
+                    <xs:element name="FeldPositionIndex" type="xs:integer" minOccurs="0"/>
+                    <xs:element name="Stamp" type="StampType" minOccurs="0"/>
+                    <xs:element name="Signer" type="xs:string" minOccurs="0"/>
+                    <xs:element name="Reason" type="xs:string" minOccurs="0"/>
+                    <xs:element name="Location" type="xs:string" minOccurs="0"/>
+                </xs:sequence>
+            </xs:extension>
+        </xs:complexContent>
+    </xs:complexType>
+
+    <xs:complexType name="StaticSignatureType">
+        <xs:complexContent>
+            <xs:extension base="BaseSignatureFields">
+                <xs:sequence>
+                    <xs:element name="Page" type="xs:integer"/>
+                    <xs:element name="X" type="xs:decimal"/>
+                    <xs:element name="Y" type="xs:decimal"/>
+                    <xs:element name="Height" type="xs:decimal"/>
+                    <xs:element name="Width" type="xs:decimal"/>
+                    <xs:element name="Signed" type="xs:integer"/>
+                    <xs:element name="Zoom" type="xs:integer"/>
+                    <xs:element name="Stamp" type="StampType" minOccurs="0"/>
+                    <xs:element name="Signer" type="xs:string" minOccurs="0"/>
+                    <xs:element name="Reason" type="xs:string" minOccurs="0"/>
+                    <xs:element name="Location" type="xs:string" minOccurs="0"/>
+                </xs:sequence>
+            </xs:extension>
+        </xs:complexContent>
+    </xs:complexType>
+
+</xs:schema>

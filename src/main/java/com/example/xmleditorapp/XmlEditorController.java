@@ -6,9 +6,6 @@ import javafx.application.Platform;
 import javafx.event.ActionEvent;
 import javafx.fxml.FXML;
 import javafx.scene.control.*;
-import javafx.scene.layout.HBox;
-import javafx.scene.layout.VBox;
-import javafx.scene.paint.Color;
 import javafx.scene.web.WebView;
 import javafx.stage.FileChooser;
 import org.json.JSONObject;
@@ -17,16 +14,6 @@ import org.w3c.dom.Element;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
 
-import javafx.scene.layout.GridPane;
-import javafx.scene.control.Label;
-import javafx.scene.control.TextField;
-import javafx.scene.control.ButtonType;
-import javafx.scene.control.ButtonBar.ButtonData;
-
-import java.io.ByteArrayOutputStream;
-import java.io.IOException;
-import java.util.Optional;
-import java.util.Map;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 import javax.xml.transform.Transformer;
@@ -34,11 +21,11 @@ import javax.xml.transform.TransformerFactory;
 import javax.xml.transform.dom.DOMSource;
 import javax.xml.transform.stream.StreamResult;
 import javax.xml.transform.stream.StreamSource;
+import java.io.ByteArrayOutputStream;
 import java.io.File;
+import java.io.IOException;
 import java.io.StringWriter;
-import java.nio.file.Files;
 import java.util.*;
-import java.util.zip.GZIPOutputStream;
 
 public class XmlEditorController implements NodeEditDialog.EditDialogListener {
     private final int view_mode_defined_for_testing = 1;
@@ -57,6 +44,12 @@ public class XmlEditorController implements NodeEditDialog.EditDialogListener {
     private Set<String> containerNodeTypes;
     // NEW: Temporary storage for the currently open dialog's stage/window
     private javafx.stage.Stage currentDialogStage;
+
+    @FXML private Button pasteButton;
+    @FXML private Button copyButton;
+    @FXML private ToolBar mainToolBar;
+
+    private org.w3c.dom.Node copiedNode = null; // Clipboard for Copy/Paste
 
     @FXML
     public void initialize() {
@@ -145,7 +138,17 @@ public class XmlEditorController implements NodeEditDialog.EditDialogListener {
                 displayNodeInfo(selectedItem.getValue().getXmlNode());
             }
         });
-    }
+
+
+            // Listener to enable Paste button when something is copied
+            copyButton.setOnAction(e -> {
+                handleCopySelectedNode();
+                if (copiedNode != null) {
+                    pasteButton.setDisable(false);
+                }
+            });
+
+        }
 
     // We may need a getter if the dialog class needs to access it directly:
     public Set<String> getContainerNodeTypes() {
@@ -264,13 +267,40 @@ public class XmlEditorController implements NodeEditDialog.EditDialogListener {
         Node parentNode = findNodeByName(xmlDocument.getDocumentElement(), parentName);
         if (parentNode instanceof Element) {
             Element newElement = xmlDocument.createElement(newNodeType);
-            newElement.setAttribute("name", "NewNode-" + System.currentTimeMillis() % 1000); // Simple unique name
-            newElement.setAttribute("x", "50");
-            newElement.setAttribute("y", "50");
 
-            // Add initial structure if necessary (e.g., text content for Items)
-            if (newNodeType.equals("Item")) {
-                newElement.appendChild(xmlDocument.createTextNode("New Item Value"));
+            try {
+                // STEP 1: Get default attributes and values from the schema
+                Map<String, String> defaultAttrs =
+                        XmlSchemaReader.getInstance().getDefaultAttributes(newNodeType);
+
+                // STEP 2: Apply all default and required attributes
+                for (Map.Entry<String, String> entry : defaultAttrs.entrySet()) {
+                    String attrName = entry.getKey();
+                    String attrValue = entry.getValue();
+
+                    if (attrName.equalsIgnoreCase("name")) {
+                        // CRITICAL: Always generate a unique name for identification
+                        newElement.setAttribute(attrName, "NewNode-" + System.currentTimeMillis() % 1000);
+                    } else if (attrName.equalsIgnoreCase("value")) {
+                        // Special handling for the 'value' attribute, map to text content
+                        newElement.appendChild(xmlDocument.createTextNode(attrValue));
+                    } else {
+                        // Set all other attributes (x, y, width, height, etc.)
+                        newElement.setAttribute(attrName, attrValue.isEmpty() ? "0" : attrValue);
+                    }
+                }
+
+                // If the element has no defaults but is required to have a unique name
+                if (!newElement.hasAttribute("name")) {
+                    newElement.setAttribute("name", "NewNode-" + System.currentTimeMillis() % 1000);
+                }
+
+            } catch (Exception e) {
+                System.err.println("Error applying schema defaults for " + newNodeType + ": " + e.getMessage());
+                // Fallback to basic creation if schema reading fails
+                newElement.setAttribute("name", "NewNode-" + System.currentTimeMillis() % 1000);
+                newElement.setAttribute("x", "0");
+                newElement.setAttribute("y", "0");
             }
 
             parentNode.appendChild(newElement);
@@ -672,13 +702,27 @@ public class XmlEditorController implements NodeEditDialog.EditDialogListener {
     }
 
     @Override
-    public void fireAddNodeRequest(String parentName, String newNodeType) {
-        // Close current dialog (will be done in openEditDialogForNode fix)
-        // Delegate to existing logic
+    public void fireAddNodeRequest(Dialog<?> dialogToClose, String parentName, String newNodeType) {
+        // 1. Add the new node to the DOM
         addNewNode(parentName, newNodeType);
 
-        // Refresh the parent dialog after DOM update
-        openEditDialogForNode(parentName, findNodeByName(xmlDocument.getDocumentElement(), parentName).getNodeName());
+        // 2. Refresh the DOM and TreeView
+        refreshUi();
+
+        // 3. Close the existing parent dialog instance (which has the stale ListView)
+        // IMPORTANT: Check if the dialog is still open before trying to hide/close.
+        Platform.runLater(() -> {
+            if (dialogToClose.getDialogPane().getScene() != null) {
+                // Close the current dialog
+                dialogToClose.close();
+            }
+
+            // 4. Reopen the parent dialog with a fresh instance, forcing a new ListView build
+            Node targetNode = findNodeByName(xmlDocument.getDocumentElement(), parentName);
+            if (targetNode != null && targetNode.getNodeType() == Node.ELEMENT_NODE) {
+                openEditDialogForNode(parentName, targetNode.getNodeName());
+            }
+        });
     }
 
     @Override
@@ -727,6 +771,192 @@ public class XmlEditorController implements NodeEditDialog.EditDialogListener {
         } else {
             // Just Base64 encode the raw data
             return Base64.getEncoder().encodeToString(rawBytes);
+        }
+    }
+
+    /**
+     * Creates a new, minimal XML Document.
+     */
+    @FXML
+    private void handleNew() {
+        if (xmlDocument != null && currentFile != null) {
+            Alert confirm = new Alert(Alert.AlertType.CONFIRMATION,
+                    "Unsaved work may be lost. Create new file?",
+                    ButtonType.YES, ButtonType.NO);
+            Optional<ButtonType> result = confirm.showAndWait();
+            if (result.isEmpty() || result.get() == ButtonType.NO) {
+                return;
+            }
+        }
+
+        try {
+            DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+            DocumentBuilder builder = factory.newDocumentBuilder();
+            Document newDocument = builder.newDocument();
+
+            // Create a minimal root element (adjust tag name if needed)
+            Element rootElement = newDocument.createElement("ESign");
+            rootElement.setAttribute("name", "root"); // Ensure root has a unique name
+            newDocument.appendChild(rootElement);
+
+            xmlDocument = newDocument;
+            currentFile = null; // Mark as unsaved
+            copiedNode = null;
+            pasteButton.setDisable(true);
+
+            // Update UI
+            refreshUi();
+            showAlert("New Document", "A new XML document with root '<ESign>' has been created.", Alert.AlertType.INFORMATION);
+
+        } catch (Exception e) {
+            showAlert("New File Error", "Failed to create new XML document: " + e.getMessage(), Alert.AlertType.ERROR);
+            e.printStackTrace();
+        }
+    }
+
+    /**
+     * Refreshes the TreeView and re-renders the SVG for the selected node.
+     */
+    @FXML
+    private void handleRefreshTree() {
+        System.out.println("LOG: Refreshing UI.");
+        refreshUi(); // Reuses your existing refresh logic
+    }
+
+    /**
+     * Deletes the currently selected node in the TreeView.
+     */
+    @FXML
+    private void handleDeleteSelectedNode() {
+        TreeItem<XmlNodeWrapper> selectedItem = xmlTreeView.getSelectionModel().getSelectedItem();
+        if (selectedItem == null || !(selectedItem.getValue().getXmlNode() instanceof Element)) {
+            showAlert("Deletion Error", "Please select an XML Element node to delete.", Alert.AlertType.WARNING);
+            return;
+        }
+
+        Element element = (Element) selectedItem.getValue().getXmlNode();
+        String nodeName = element.getAttribute("name");
+
+        // Confirmation
+        Alert alert = new Alert(Alert.AlertType.CONFIRMATION, "Delete node '" + nodeName + "'?", ButtonType.YES, ButtonType.NO);
+        Optional<ButtonType> result = alert.showAndWait();
+
+        if (result.isPresent() && result.get() == ButtonType.YES) {
+            deleteNode(nodeName); // Reuses existing controller logic
+            refreshUi();
+        }
+    }
+
+    /**
+     * Copies the currently selected node to the controller's clipboard.
+     */
+    @FXML
+    private void handleCopySelectedNode() {
+        TreeItem<XmlNodeWrapper> selectedItem = xmlTreeView.getSelectionModel().getSelectedItem();
+        if (selectedItem != null && selectedItem.getValue().getXmlNode() instanceof Element) {
+            // Deep clone the selected node and store it
+            copiedNode = selectedItem.getValue().getXmlNode().cloneNode(true);
+            showAlert("Copy Success", selectedItem.getValue().getXmlNode().getNodeName() + " copied.", Alert.AlertType.INFORMATION);
+            pasteButton.setDisable(false);
+        } else {
+            showAlert("Copy Error", "Please select an XML Element node to copy.", Alert.AlertType.WARNING);
+            pasteButton.setDisable(true);
+            copiedNode = null;
+        }
+    }
+
+    /**
+     * Pastes the copied node as a sibling of the currently selected node.
+     */
+    @FXML
+    private void handlePasteNode() {
+        TreeItem<XmlNodeWrapper> selectedItem = xmlTreeView.getSelectionModel().getSelectedItem();
+        if (copiedNode == null) {
+            showAlert("Paste Error", "Nothing has been copied.", Alert.AlertType.WARNING);
+            return;
+        }
+        if (selectedItem == null || !(selectedItem.getValue().getXmlNode() instanceof Element)) {
+            showAlert("Paste Error", "Please select a node to paste relative to.", Alert.AlertType.WARNING);
+            return;
+        }
+
+        Element targetElement = (Element) selectedItem.getValue().getXmlNode();
+        Node parentNode = targetElement.getParentNode();
+
+        if (parentNode == null) {
+            showAlert("Paste Error", "Cannot paste at the root level without a parent.", Alert.AlertType.ERROR);
+            return;
+        }
+
+        // 1. Import the node from the copied Document into the current Document
+        org.w3c.dom.Node importedNode = xmlDocument.importNode(copiedNode, true);
+
+        // 2. Ensure the new node and all its children have unique 'name' attributes
+        if (importedNode instanceof Element) {
+            renameDuplicatedNodeRecursively((Element) importedNode);
+        }
+
+        // 3. Insert the pasted node *before* the selected node (as a sibling)
+        parentNode.insertBefore(importedNode, targetElement.getNextSibling());
+
+        // 4. Refresh and update clipboard for next paste
+        refreshUi();
+        showAlert("Paste Success", importedNode.getNodeName() + " pasted.", Alert.AlertType.INFORMATION);
+    }
+
+
+    /**
+     * Duplicates the currently selected node and places the copy as a sibling.
+     */
+    @FXML
+    private void handleDuplicateSelectedNode() {
+        TreeItem<XmlNodeWrapper> selectedItem = xmlTreeView.getSelectionModel().getSelectedItem();
+        if (selectedItem == null || !(selectedItem.getValue().getXmlNode() instanceof Element)) {
+            showAlert("Duplication Error", "Please select an XML Element node to duplicate.", Alert.AlertType.WARNING);
+            return;
+        }
+
+        Element originalElement = (Element) selectedItem.getValue().getXmlNode();
+        Node parentNode = originalElement.getParentNode();
+
+        if (parentNode == null) {
+            showAlert("Duplication Error", "Cannot duplicate the root node.", Alert.AlertType.ERROR);
+            return;
+        }
+
+        // 1. Clone the node (deep clone)
+        Element newElement = (Element) originalElement.cloneNode(true);
+
+        // 2. Ensure the new node and its children have unique 'name' attributes
+        renameDuplicatedNodeRecursively(newElement);
+
+        // 3. Insert the duplicated node into the DOM (as a sibling after the original)
+        parentNode.insertBefore(newElement, originalElement.getNextSibling());
+
+        // 4. Refresh the UI
+        refreshUi();
+        showAlert("Duplication Success", originalElement.getNodeName() + " duplicated.", Alert.AlertType.INFORMATION);
+    }
+
+
+    /**
+     * Helper to ensure a duplicated node structure has unique 'name' attributes.
+     */
+    private void renameDuplicatedNodeRecursively(Node currentNode) {
+        if (currentNode.getNodeType() == Node.ELEMENT_NODE) {
+            Element element = (Element) currentNode;
+
+            // Regenerate the unique name
+            String syntheticName = "synth_" + element.getNodeName() + "_" + UUID.randomUUID().toString().substring(0, 5);
+            element.setAttribute("name", syntheticName);
+        }
+
+        NodeList children = currentNode.getChildNodes();
+        for (int i = 0; i < children.getLength(); i++) {
+            // Only recurse into Element nodes
+            if (children.item(i).getNodeType() == Node.ELEMENT_NODE) {
+                renameDuplicatedNodeRecursively(children.item(i));
+            }
         }
     }
 }

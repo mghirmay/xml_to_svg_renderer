@@ -3,42 +3,69 @@
 <?import javafx.scene.control.*?>
 <?import javafx.scene.layout.*?>
 <?import javafx.scene.web.WebView?>
+<?import javafx.geometry.Insets?>
 
 <VBox prefHeight="600.0" prefWidth="900.0" xmlns="http://javafx.com/javafx/17"
       xmlns:fx="http://javafx.com/fxml/1" fx:controller="com.example.xmleditorapp.XmlEditorController">
-<MenuBar>
-    <Menu text="File">
-        <MenuItem text="Open..." onAction="#handleOpen"/>
-        <Menu fx:id="recentFilesMenu" text="Open Recent"/>
-        <SeparatorMenuItem/>
-        <MenuItem text="Save" onAction="#handleSave"/>
-        <MenuItem text="Save As..." onAction="#handleSaveAs"/>
+    <MenuBar>
+        <Menu text="File">
+            <MenuItem text="New XML File" onAction="#handleNew"/>
+            <MenuItem text="Open..." onAction="#handleOpen"/>
+            <Menu fx:id="recentFilesMenu" text="Open Recent"/>
+            <SeparatorMenuItem/>
+            <MenuItem text="Save" onAction="#handleSave"/>
+            <MenuItem text="Save As..." onAction="#handleSaveAs"/>
+            <SeparatorMenuItem/>
+            <MenuItem text="Configure XSLT..." onAction="#handleConfigureXslt"/>
+            <SeparatorMenuItem/>
+            <MenuItem text="Exit" onAction="#handleExit"/>
+        </Menu>
+    </MenuBar>
 
-        <!-- ADD THIS MENU ITEM -->
-        <SeparatorMenuItem/>
-        <MenuItem text="Configure XSLT..." onAction="#handleConfigureXslt"/>
+    <ToolBar fx:id="mainToolBar">
+        <Button text="New" onAction="#handleNew">
+            <tooltip>
+                <Tooltip text="Create a new XML document" />
+            </tooltip>
+        </Button>
+        <Separator/>
+        <Button text="Refresh Tree" onAction="#handleRefreshTree">
+            <tooltip>
+                <Tooltip text="Refresh the TreeView and UI" />
+            </tooltip>
+        </Button>
+        <Separator/>
+        <Button text="Delete" onAction="#handleDeleteSelectedNode">
+            <tooltip>
+                <Tooltip text="Delete the currently selected node" />
+            </tooltip>
+        </Button>
+        <Button fx:id="copyButton" text="Copy" onAction="#handleCopySelectedNode">
+            <tooltip>
+                <Tooltip text="Copy selected node" />
+            </tooltip>
+        </Button>
+        <Button fx:id="pasteButton" text="Paste" onAction="#handlePasteNode" disable="true">
+            <tooltip>
+                <Tooltip text="Paste the copied node as a sibling" />
+            </tooltip>
+        </Button>
+        <Button text="Duplicate" onAction="#handleDuplicateSelectedNode">
+            <tooltip>
+                <Tooltip text="Duplicate the selected node instantly" />
+            </tooltip>
+        </Button>
+    </ToolBar>
+    <SplitPane dividerPositions="0.3" VBox.vgrow="ALWAYS">
+        <TreeView fx:id="xmlTreeView" prefWidth="300.0" />
 
-        <SeparatorMenuItem/>
-        <MenuItem text="Exit" onAction="#handleExit"/>
-    </Menu>
-
-</MenuBar>
-
-<SplitPane dividerPositions="0.3" VBox.vgrow="ALWAYS">
-    <TreeView fx:id="xmlTreeView" prefWidth="300.0" />
-
-    <TabPane fx:id="tabPane" tabClosingPolicy="UNAVAILABLE" prefWidth="600.0">
-
-        <Tab text="SVG Visualization">
-            <WebView fx:id="svgWebView" />
-        </Tab>
-
-        <Tab text="XML Source">
-            <TextArea fx:id="xmlSourceArea" wrapText="true" editable="false" />
-        </Tab>
-
-
-
-    </TabPane>
-</SplitPane>
+        <TabPane fx:id="tabPane" tabClosingPolicy="UNAVAILABLE" prefWidth="600.0">
+            <Tab text="SVG Visualization">
+                <WebView fx:id="svgWebView" />
+            </Tab>
+            <Tab text="XML Source">
+                <TextArea fx:id="xmlSourceArea" wrapText="true" editable="false" />
+            </Tab>
+        </TabPane>
+    </SplitPane>
 </VBox>
